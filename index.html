@@ -1,146 +1,168 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>AI Interview Practice</title>
+  <!-- Face-api.js for face expression detection -->
   <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
   <style>
-    body { margin:0; display:flex; font-family:sans-serif; height:100vh; }
-    #video-container { position:relative; width:70%; background:#000; }
-    video { width:100%; height:100%; object-fit:cover; }
-    #overlay { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
-    #subtitle { position:absolute; bottom:160px; width:100%; text-align:center; background:rgba(0,0,0,0.6); color:#fff; padding:8px; font-size:16px; }
-    #emotion-text, #tips-text { position:absolute; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.6); color:#fff; padding:6px 12px; border-radius:4px; }
-    #emotion-text { top:20px; font-size:18px; }
-    #tips-text { top:60px; font-size:16px; }
-    #question-box { position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:rgba(255,255,255,0.8); padding:16px; border-radius:8px; text-align:center; }
-    button { margin:4px; padding:8px 12px; font-size:14px; }
-    #right-panel { width:30%; background:#f4f4f4; padding:16px; box-sizing:border-box; overflow-y:auto; }
-    #transcript-history { border:1px solid #ccc; background:#fff; height:150px; overflow-y:auto; padding:8px; white-space:pre-wrap; margin-bottom:12px; }
+    body { margin: 0; font-family: sans-serif; display: flex; height: 100vh; overflow: hidden; }
+    #video-container { position: relative; width: 70%; background-color: black; }
+    #video { width: 100%; height: 100%; object-fit: cover; }
+    #overlay { position: absolute; top: 0; left: 0; pointer-events: none; width: 100%; height: 100%; }
+    #subtitle { position: absolute; bottom: 160px; width: 100%; text-align: center; background-color: rgba(0,0,0,0.6); color: white; padding: 8px 12px; font-size: 16px; pointer-events: none; z-index: 10; }
+    #emotion-text { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); background-color: rgba(0,0,0,0.6); color: white; padding: 8px 12px; border-radius: 6px; font-size: 18px; pointer-events: none; z-index: 11; }
+    #tips-text { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); background-color: rgba(0,0,0,0.6); color: white; padding: 8px 12px; border-radius: 6px; font-size: 16px; pointer-events: none; z-index: 11; }
+    #question-box { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(255,255,255,0.8); padding: 20px; border-radius: 10px; z-index: 10; text-align: center; }
+    #interview-controls { margin-top: 10px; }
+    button { padding: 10px 15px; margin: 5px; font-size: 16px; border-radius: 5px; }
+    #right-panel { width: 30%; background-color: #f4f4f4; padding: 20px; box-sizing: border-box; overflow-y: auto; }
+    #transcript-history { background: #fff; border: 1px solid #ccc; padding: 10px; height: 150px; overflow-y: auto; font-size: 14px; margin-bottom: 20px; }
   </style>
 </head>
 <body>
   <div id="video-container">
     <video id="video" autoplay muted playsinline></video>
     <canvas id="overlay"></canvas>
-    <div id="subtitle">Press "Start Interview" to begin</div>
+    <div id="subtitle">(Press "Start Interview" to begin)</div>
     <div id="emotion-text">Loading models...</div>
     <div id="tips-text">Waiting...</div>
     <div id="question-box">
-      <button id="startBtn">▶️ Start Interview</button>
-      <button id="nextBtn" disabled>➡️ Next Question</button>
-      <button id="endBtn" disabled>⏹️ End Interview</button>
+      <h2 id="question-text">Ready to start</h2>
+      <div id="interview-controls">
+        <button id="startBtn">▶️ Start Interview</button>
+        <button id="nextBtn" disabled>➡️ Next Question</button>
+        <button id="endBtn" disabled>⏹️ End Interview</button>
+      </div>
     </div>
   </div>
   <div id="right-panel">
-    <h3>Question & Transcript</h3>
-    <div id="transcript-history">No data yet.</div>
-    <h3>Tips</h3>
+    <h3>Live Transcript History</h3>
+    <div id="transcript-history">(Transcript will appear here)</div>
+    <h3>Tips for Answering</h3>
     <ul id="tips-list"></ul>
+    <div id="device-selectors">
+      <label for="cameraSelect">Camera:</label>
+      <select id="cameraSelect"></select>
+      <label for="micSelect">Microphone:</label>
+      <select id="micSelect"></select>
+    </div>
   </div>
-
   <script>
-  window.addEventListener('DOMContentLoaded', async ()=>{
-    const questions = [
-      {text:'Tell me about yourself.', tips:['Career summary','2 minutes max','Achievements']},
-      {text:'What are your strengths?', tips:['Job-related','With examples']},
-      {text:"Describe a challenge you've overcome.", tips:['Use STAR','Positive outcome']}
-    ];
-    let currentQuestion=0;
-    let stream, mediaRecorder, recognition;
-    let fullTranscript='';
-    const transcripts=[];
-    const videoChunks=[];
+    window.addEventListener('DOMContentLoaded', async () => {
+      const questions = [
+        { text: 'Tell me about yourself.', tips: ['Career summary', '2 minutes max', 'Achievements'] },
+        { text: 'What are your strengths?', tips: ['Job-related', 'With examples'] },
+        { text: "Describe a challenge you've overcome.", tips: ['Use STAR', 'Positive outcome'] }
+      ];
+      let currentQuestion = 0;
+      let stream, mediaRecorder, recognition;
+      let fullTranscript = '';
+      const transcripts = [];
+      const videoChunks = [];
 
-    // Elements
-    const video=document.getElementById('video');
-    const overlay=document.getElementById('overlay');
-    const ctx=overlay.getContext('2d');
-    const subtitle=document.getElementById('subtitle');
-    const emotionText=document.getElementById('emotion-text');
-    const tipsText=document.getElementById('tips-text');
-    const startBtn=document.getElementById('startBtn');
-    const nextBtn=document.getElementById('nextBtn');
-    const endBtn=document.getElementById('endBtn');
-    const historyDiv=document.getElementById('transcript-history');
-    const tipsList=document.getElementById('tips-list');
+      const video = document.getElementById('video');
+      const overlay = document.getElementById('overlay');
+      const ctx = overlay.getContext('2d');
+      const subtitle = document.getElementById('subtitle');
+      const emotionTextEl = document.getElementById('emotion-text');
+      const tipsTextEl = document.getElementById('tips-text');
+      const historyDiv = document.getElementById('transcript-history');
+      const cameraSelect = document.getElementById('cameraSelect');
+      const micSelect = document.getElementById('micSelect');
+      const startBtn = document.getElementById('startBtn');
+      const nextBtn = document.getElementById('nextBtn');
+      const endBtn = document.getElementById('endBtn');
 
-    // Load models
-    async function loadModels(){
-      try{
-        await faceapi.nets.tinyFaceDetector.loadFromUri('./models');
-        await faceapi.nets.faceExpressionNet.loadFromUri('./models');
-        emotionText.textContent='Detection ready';
-      }catch(e){emotionText.textContent='Model load failed';console.error(e)}
-    }
-    // Setup camera
-    async function setupCamera(){
-      stream=await navigator.mediaDevices.getUserMedia({video:true,audio:true});
-      video.srcObject=stream;
-    }
-    // Face detection
-    function startDetection(){setInterval(async()=>{
-      if(!video.videoWidth)return;
-      overlay.width=video.videoWidth; overlay.height=video.videoHeight;
-      const det=await faceapi.detectAllFaces(video,new faceapi.TinyFaceDetectorOptions()).withFaceExpressions();
-      ctx.clearRect(0,0,overlay.width,overlay.height);
-      if(det.length){
-        const exp=det[0].expressions; const [em]=Object.entries(exp).reduce((a,b)=>a[1]>b[1]?a:b);
-        const emojiMap={happy:'😊',angry:'😠',sad:'😢',surprised:'😲',disgusted:'🤢',fearful:'😨',neutral:'😐'};
-        emotionText.textContent=emojiMap[em]+' '+em;
-      } else emotionText.textContent='No face';
-    },1000)}
-    // Update question UI
-    function loadQuestionUI(){
-      subtitle.textContent=questions[currentQuestion].text;
-      tipsText.textContent=questions[currentQuestion].tips.join(' • ');
-      tipsList.innerHTML='';
-      questions[currentQuestion].tips.forEach(t=>{const li=document.createElement('li');li.textContent=t;tipsList.append(li)})
-    }
+      async function loadModels() {
+        const MODEL_URL = './models';
+        try {
+          await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+          await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
+          emotionTextEl.innerText = 'Ready for detection';
+        } catch (err) {
+          emotionTextEl.innerText = 'Model load failed'; console.error(err);
+        }
+      }
 
-    // Update transcript history
-    function updateHistory(){
-      historyDiv.innerHTML=transcripts.map(t=>`<strong>${t.question}</strong><br>${t.transcript.replace(/\n/g,'<br>')}`).join('<hr>');
-    }
+      async function getDevices() {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        devices.forEach(d => {
+          const opt = document.createElement('option'); opt.value = d.deviceId; opt.text = d.label||d.kind;
+          if (d.kind==='videoinput') cameraSelect.append(opt);
+          if (d.kind==='audioinput') micSelect.append(opt);
+        });
+      }
 
-    // Start interview
-    function startSession(){
-      fullTranscript=''; transcripts.length=0; videoChunks.length=0; currentQuestion=0;
-      loadQuestionUI(); historyDiv.textContent='';
-      // SpeechRec
-      const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-      if(SR){ recognition=new SR(); recognition.continuous=true; recognition.interimResults=true;
-        recognition.onresult=e=>{let interim='';for(let i=e.resultIndex;i<e.results.length;i++){const txt=e.results[i][0].transcript; if(e.results[i].isFinal) fullTranscript+=txt+'\n'; else interim+=txt;} subtitle.textContent=interim;}; recognition.start(); }
-      // MediaRecorder
-      mediaRecorder=new MediaRecorder(stream);
-      mediaRecorder.ondataavailable=e=>{if(e.data.size)videoChunks.push(e.data)};
-      mediaRecorder.onstop=downloadVideo;
-      mediaRecorder.start();
-      startBtn.disabled=true; nextBtn.disabled=false; endBtn.disabled=false;
-    }
-    // Next question
-    function nextQuestion(){
-      transcripts.push({question:questions[currentQuestion].text,transcript:fullTranscript.trim()});
-      updateHistory(); fullTranscript='';
-      if(++currentQuestion<questions.length)loadQuestionUI(); else nextBtn.disabled=true;
-    }
-    // End interview
-    function endSession(){
-      if(recognition)recognition.stop();
-      if(mediaRecorder&&mediaRecorder.state==='recording')mediaRecorder.stop();
-      transcripts.push({question:questions[currentQuestion].text,transcript:fullTranscript.trim()});
-      updateHistory(); endBtn.disabled=true; nextBtn.disabled=true;
-    }
-    function downloadVideo(){
-      const blob=new Blob(videoChunks,{type:'video/webm'});
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement('a');a.href=url;a.download='full-interview.webm';a.click();
-    }
+      async function setupCamera(camId, micId) {
+        if (stream) stream.getTracks().forEach(t=>t.stop());
+        stream = await navigator.mediaDevices.getUserMedia({ video: camId?{deviceId:camId}:true, audio: micId?{deviceId:micId}:true });
+        video.srcObject = stream;
+      }
 
-    // Init
-    await loadModels(); await setupCamera(); startDetection();
-    startBtn.onclick=startSession; nextBtn.onclick=nextQuestion; endBtn.onclick=endSession;
-  })
+      function loadQuestion() {
+        const q = questions[currentQuestion];
+        document.getElementById('question-text').innerText = q.text;
+        tipsTextEl.innerText = q.tips.join(' • ');
+        const tipsList = document.getElementById('tips-list'); tipsList.innerHTML='';
+        q.tips.forEach(t=>{const li=document.createElement('li');li.innerText=t;tipsList.append(li)});
+      }
+
+      function startDetection() {
+        setInterval(async () => {
+          if (!video.videoWidth) return;
+          overlay.width = video.videoWidth; overlay.height = video.videoHeight;
+          const det = await faceapi.detectAllFaces(video,new faceapi.TinyFaceDetectorOptions()).withFaceExpressions();
+          ctx.clearRect(0,0,overlay.width,overlay.height);
+          if(det.length){
+            const exp=det[0].expressions; const [em]=Object.entries(exp).reduce((a,b)=>a[1]>b[1]?a:b);
+            const emoj={happy:'😊',angry:'😠',sad:'😢',surprised:'😲',disgusted:'🤢',fearful:'😨',neutral:'😐'};
+            const prompt=['angry','sad','disgusted','fearful'].includes(em)?' Try smiling 🙂':'';
+            emotionTextEl.innerText=`${emoj[em]||''} ${em}${prompt}`;
+          } else emotionTextEl.innerText='No face detected';
+        },1000);
+      }
+
+      function updateHistory() {
+        historyDiv.innerHTML = transcripts.map(t => `<strong>${t.question}</strong><br>${t.transcript.replace(/\n/g,'<br>')}`).join('<hr>');
+        localStorage.setItem('transcriptHistory', JSON.stringify(transcripts));
+      }
+
+      function startSession() {
+        fullTranscript=''; transcripts.length=0; historyDiv.innerText=''; currentQuestion=0; loadQuestion();
+        const SpeechRec=window.SpeechRecognition||window.webkitSpeechRecognition; recognition=SpeechRec?new SpeechRec():null;
+        if(recognition){ recognition.continuous=true; recognition.interimResults=true;
+          recognition.onresult=e=>{ let interim=''; for(let i=e.resultIndex;i<e.results.length;i++){const txt=e.results[i][0].transcript; if(e.results[i].isFinal) fullTranscript+=txt+'\n'; else interim+=txt;} subtitle.innerText=interim;}; recognition.start(); }
+        mediaRecorder=new MediaRecorder(stream);
+        mediaRecorder.ondataavailable=e=>{ if(e.data.size) videoChunks.push(e.data); };
+        mediaRecorder.start();
+        startBtn.disabled=true; nextBtn.disabled=false; endBtn.disabled=false;
+      }
+
+      function nextQuestion() {
+        // Save current transcript
+        transcripts.push({ question: questions[currentQuestion].text, transcript: fullTranscript.trim() });
+        updateHistory();
+        fullTranscript='';
+        if(++currentQuestion<questions.length) loadQuestion(); else nextBtn.disabled=true;
+      }
+
+      function endSession() {
+        if(recognition) recognition.stop();
+        if(mediaRecorder&&mediaRecorder.state==='recording') mediaRecorder.stop();
+        // capture last question
+        transcripts.push({ question: questions[currentQuestion].text, transcript: fullTranscript.trim() });
+        updateHistory();
+        // on stop event will download
+        startBtn.disabled=false; nextBtn.disabled=true; endBtn.disabled=true;
+      }
+
+      mediaRecorder && (mediaRecorder.onstop = () => {});
+      await loadModels(); await getDevices(); await setupCamera(); startDetection();
+      startBtn.onclick=startSession; nextBtn.onclick=nextQuestion; endBtn.onclick=endSession;
+      cameraSelect.onchange=()=>setupCamera(cameraSelect.value,micSelect.value);
+      micSelect.onchange=()=>setupCamera(cameraSelect.value,micSelect.value);
+    });
   </script>
 </body>
 </html>
